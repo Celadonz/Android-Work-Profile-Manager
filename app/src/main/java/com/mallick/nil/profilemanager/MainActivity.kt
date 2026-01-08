@@ -26,6 +26,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.mallick.nil.profilemanager.ui.theme.ProfileManagerTheme
 import com.mallick.nil.profilemanager.ui.theme.Purple40
 import com.mallick.nil.profilemanager.ui.theme.Pink40
@@ -33,12 +36,14 @@ import com.mallick.nil.profilemanager.ui.theme.Pink40
 class MainActivity : ComponentActivity() {
     private lateinit var devicePolicyManager: DevicePolicyManager
     private lateinit var adminComponentName: ComponentName
+    private var isProfileOwner by mutableStateOf(false)
 
     private val provisionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK) {
             Toast.makeText(this, "Provisioning started", Toast.LENGTH_SHORT).show()
+            updateProfileStatus()
         } else {
             Toast.makeText(this, "Provisioning failed or cancelled", Toast.LENGTH_SHORT).show()
         }
@@ -49,7 +54,7 @@ class MainActivity : ComponentActivity() {
         devicePolicyManager = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         adminComponentName = ComponentName(this, MyDeviceAdminReceiver::class.java)
 
-        val isProfileOwner = devicePolicyManager.isProfileOwnerApp(packageName)
+        updateProfileStatus()
 
         enableEdgeToEdge()
         setContent {
@@ -64,6 +69,22 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateProfileStatus()
+    }
+
+    private fun updateProfileStatus() {
+        isProfileOwner = isProfileOwnerOrManaged()
+    }
+
+    private fun isProfileOwnerOrManaged(): Boolean {
+        if (devicePolicyManager.isProfileOwnerApp(packageName)) return true
+        
+        val userManager = getSystemService(Context.USER_SERVICE) as android.os.UserManager
+        return userManager.userProfiles.size > 1
     }
 
     private fun provisionManagedProfile() {
