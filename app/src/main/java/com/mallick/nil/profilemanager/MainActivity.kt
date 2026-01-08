@@ -75,6 +75,7 @@ class MainActivity : ComponentActivity() {
                         isRunningInWorkProfile = isRunningInWorkProfile,
                         hasOtherProfiles = hasOtherProfiles,
                         onProvisionClick = { provisionManagedProfile() },
+                        onActivateAdminClick = { activateDeviceAdmin() },
                         onInstallAppClick = { packageName -> installAppInProfile(packageName) },
                         onDeleteProfileClick = { deleteWorkProfile() }
                     )
@@ -115,12 +116,7 @@ class MainActivity : ComponentActivity() {
     private fun provisionManagedProfile() {
         if (!isAdminActive) {
             Toast.makeText(this, "Please enable Device Admin first (click 'Activate Admin')", Toast.LENGTH_LONG).show()
-            // We could also trigger the admin activation intent here
-            val adminIntent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponentName)
-                putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to set up the Work Profile.")
-            }
-            startActivity(adminIntent)
+            activateDeviceAdmin()
             return
         }
 
@@ -135,6 +131,14 @@ class MainActivity : ComponentActivity() {
         } else {
             Toast.makeText(this, "Provisioning not supported on this device", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun activateDeviceAdmin() {
+        val adminIntent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponentName)
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to set up the Work Profile.")
+        }
+        startActivity(adminIntent)
     }
 
     private fun installAppInProfile(packageName: String) {
@@ -173,6 +177,7 @@ fun MainScreen(
     isRunningInWorkProfile: Boolean,
     hasOtherProfiles: Boolean,
     onProvisionClick: () -> Unit,
+    onActivateAdminClick: () -> Unit,
     onInstallAppClick: (String) -> Unit,
     onDeleteProfileClick: () -> Unit
 ) {
@@ -191,10 +196,12 @@ fun MainScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = when {
-                isProfileOwner -> "Status: Profile Owner (Active)"
-                isAdminActive -> "Status: Device Admin (Active)"
-                else -> "Status: Not Provisioned"
+            text = if (isProfileOwner) {
+                "This app is the owner of the Work Profile."
+            } else if (isAdminActive) {
+                "Device Admin is active and managing this profile."
+            } else run {
+                "Device Admin is not active. Please enable it to set up the Work Profile."
             },
             modifier = Modifier.padding(bottom = 8.dp),
             textAlign = TextAlign.Center
@@ -219,7 +226,7 @@ fun MainScreen(
             if (hasOtherProfiles) {
                 Text(
                     text = "Warning: Another profile (Work Profile or Secure Folder) detected. " +
-                           "Android typically allows only ONE work profile. Provisioning may fail.",
+                    "Android typically allows only ONE work profile. Provisioning may fail.",
                     color = androidx.compose.ui.graphics.Color.Yellow,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(bottom = 16.dp),
@@ -234,8 +241,14 @@ fun MainScreen(
                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall
             )
             
-            Button(onClick = onProvisionClick) {
-                Text(text = "Set up Work Profile")
+            if (isAdminActive) {
+                Button(onClick = onProvisionClick) {
+                    Text(text = "Set up Work Profile")
+                }
+            } else {
+                Button(onClick = onActivateAdminClick) {
+                    Text(text = "Set Up Device Admin")
+                }
             }
         } else {
             if (isProfileOwner) {
