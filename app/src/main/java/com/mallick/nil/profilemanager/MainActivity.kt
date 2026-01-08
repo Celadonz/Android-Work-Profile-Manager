@@ -6,7 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.UserManager
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +21,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mallick.nil.profilemanager.ui.theme.Pink40
@@ -45,15 +50,27 @@ class MainActivity : ComponentActivity() {
     private var isRunningInWorkProfile by mutableStateOf(false)
     private var hasWorkProfile by mutableStateOf(false)
     private var hasOtherProfiles by mutableStateOf(false)
+    private var isLoading by mutableStateOf(false)
+
+    companion object {
+        fun demo() {
+            Log.i("ProfileManager", "Demo mode enabled")
+        }
+    }
 
     private val provisionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+
         if (result.resultCode == RESULT_OK) {
             Toast.makeText(this, "Provisioning started", Toast.LENGTH_SHORT).show()
-            updateProfileStatus()
+            Handler(Looper.getMainLooper()).postDelayed({
+                updateProfileStatus()
+                isLoading = false
+            }, 5000L)
         } else {
             Toast.makeText(this, "Provisioning failed or cancelled.", Toast.LENGTH_LONG).show()
+            isLoading = false
         }
     }
 
@@ -75,6 +92,7 @@ class MainActivity : ComponentActivity() {
                         isRunningInWorkProfile = isRunningInWorkProfile,
                         hasWorkProfile = hasWorkProfile,
                         hasOtherProfiles = hasOtherProfiles,
+                        isLoading = isLoading,
                         isSamsungDevice = isSamsungDevice(),
                         onProvisionClick = { provisionManagedProfile() },
                         onActivateAdminClick = { activateDeviceAdmin() },
@@ -130,6 +148,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        isLoading = true
         val intent = Intent(DevicePolicyManager.ACTION_PROVISION_MANAGED_PROFILE).apply {
             putExtra(DevicePolicyManager.EXTRA_PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME, adminComponentName)
             // EXTRA_PROVISIONING_SKIP_ENCRYPTION is deprecated in API 33, but fine for older
@@ -139,6 +158,7 @@ class MainActivity : ComponentActivity() {
         if (intent.resolveActivity(packageManager) != null) {
             provisionLauncher.launch(intent)
         } else {
+            isLoading = false
             Toast.makeText(this, "Provisioning not supported on this device", Toast.LENGTH_SHORT).show()
         }
     }
@@ -187,6 +207,7 @@ fun MainScreen(
     isRunningInWorkProfile: Boolean,
     hasWorkProfile: Boolean,
     hasOtherProfiles: Boolean,
+    isLoading: Boolean,
     isSamsungDevice: Boolean,
     onProvisionClick: () -> Unit,
     onActivateAdminClick: () -> Unit,
@@ -258,7 +279,7 @@ fun MainScreen(
                         Text(
                             text = "Warning: Another profile (Work Profile, Dual Messenger or Secure Folder) detected. " +
                                     "Android typically allows only ONE work profile. Provisioning may fail.",
-                            color = androidx.compose.ui.graphics.Color.Yellow,
+                            color = Color.Yellow,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(bottom = 16.dp),
                             style = androidx.compose.material3.MaterialTheme.typography.bodySmall
@@ -268,8 +289,12 @@ fun MainScreen(
 
                 if (isAdminActive) {
                     if (!hasWorkProfile) {
-                        Button(onClick = onProvisionClick) {
-                            Text(text = "Set up Work Profile")
+                        if (isLoading) {
+                            CircularProgressIndicator(color = Color.White)
+                        } else {
+                            Button(onClick = onProvisionClick) {
+                                Text(text = "Set up Work Profile")
+                            }
                         }
                     }
                 } else {
