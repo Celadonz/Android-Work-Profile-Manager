@@ -4,8 +4,9 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.UserManager
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -21,18 +22,19 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import com.mallick.nil.profilemanager.ui.theme.Pink40
 import com.mallick.nil.profilemanager.ui.theme.ProfileManagerTheme
 import com.mallick.nil.profilemanager.ui.theme.Purple40
-import com.mallick.nil.profilemanager.ui.theme.Pink40
+
 
 class MainActivity : ComponentActivity() {
     private lateinit var devicePolicyManager: DevicePolicyManager
@@ -74,6 +76,7 @@ class MainActivity : ComponentActivity() {
                         isAdminActive = isAdminActive,
                         isRunningInWorkProfile = isRunningInWorkProfile,
                         hasOtherProfiles = hasOtherProfiles,
+                        isSamsungDevice = isSamsungDevice(),
                         onProvisionClick = { provisionManagedProfile() },
                         onActivateAdminClick = { activateDeviceAdmin() },
                         onInstallAppClick = { packageName -> installAppInProfile(packageName) },
@@ -89,25 +92,60 @@ class MainActivity : ComponentActivity() {
         updateProfileStatus()
     }
 
+    fun isSamsungDevice(): Boolean {
+        return Build.MANUFACTURER.equals("samsung", ignoreCase = true)
+    }
+
+    fun Context.hasWorkProfile(): Boolean {
+        val userManager = getSystemService(UserManager::class.java)
+        // Owner profile will see exactly one extra profile if Work Profile exists
+        Log.i("ProfileManager", "userProfiles: ${userManager.userProfiles}")
+        return userManager.userProfiles.size > 3
+    }
+
+    fun Context.isRunningInWorkProfile(): Boolean {
+        val userManager = getSystemService(UserManager::class.java)
+        return userManager.isManagedProfile
+    }
+
+
     private fun updateProfileStatus() {
         val isOwner = devicePolicyManager.isProfileOwnerApp(packageName)
         val isActive = devicePolicyManager.isAdminActive(adminComponentName)
         
         val userManager = getSystemService(Context.USER_SERVICE) as android.os.UserManager
+
+        /*var hasWorkProfile = false*/
+
         val profiles = userManager.userProfiles
+
+        /*for (user in profiles) {
+            Log.i("ProfileManager", "user: $user")
+            if (userManager.isManagedProfile) {
+                hasWorkProfile = true
+                break
+            }
+        }*/
+
+        Log.i("ProfileManager", "manufacturer: ${isSamsungDevice()}")
+
+        val hasWorkProfile = hasWorkProfile()
+
+        Log.i("ProfileManager", "hasWorkProfile: $hasWorkProfile")
+
         
-        val isMainProfile = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        /*val isMainProfile = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             !userManager.isManagedProfile
         } else {
             // Fallback for older APIs if needed, but isProfileOwnerApp usually suffices
             !devicePolicyManager.isProfileOwnerApp(packageName)
-        }
+        }*/
 
         val hasOthers = profiles.any { it != android.os.Process.myUserHandle() }
 
         isProfileOwner = isOwner
         isAdminActive = isActive
-        isRunningInWorkProfile = !isMainProfile
+        isRunningInWorkProfile = false
         hasOtherProfiles = hasOthers
 
         Log.e("ProfileManager", "$isProfileOwner $isActive $isRunningInWorkProfile $hasOthers")
@@ -176,6 +214,7 @@ fun MainScreen(
     isAdminActive: Boolean,
     isRunningInWorkProfile: Boolean,
     hasOtherProfiles: Boolean,
+    isSamsungDevice: Boolean,
     onProvisionClick: () -> Unit,
     onActivateAdminClick: () -> Unit,
     onInstallAppClick: (String) -> Unit,
@@ -195,102 +234,111 @@ fun MainScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = if (isProfileOwner) {
-                "This app is the owner of the Work Profile."
-            } else if (isAdminActive) {
-                "Device Admin is active and managing this profile."
-            } else run {
-                "Device Admin is not active. Please enable it to set up the Work Profile."
-            },
-            modifier = Modifier.padding(bottom = 8.dp),
-            textAlign = TextAlign.Center
-        )
-
-        if (isRunningInWorkProfile) {
+        if (!isSamsungDevice) {
             Text(
-                text = "This app is running INSIDE the Work Profile.",
-                modifier = Modifier.padding(bottom = 16.dp),
+                text = "This application only works on Samsung devices.",
+                color = androidx.compose.ui.graphics.Color.White,
                 textAlign = TextAlign.Center,
-                color = androidx.compose.ui.graphics.Color.White
+                style = androidx.compose.material3.MaterialTheme.typography.headlineMedium
             )
         } else {
-             Text(
-                text = "This app is running in the MAIN Profile.",
-                modifier = Modifier.padding(bottom = 16.dp),
+            Text(
+                text = if (isProfileOwner) {
+                    "This app is the owner of the Work Profile."
+                } else if (isAdminActive) {
+                    "Device Admin is active and managing this profile."
+                } else run {
+                    "Device Admin is not active. Please enable it to set up the Work Profile."
+                },
+                modifier = Modifier.padding(bottom = 8.dp),
                 textAlign = TextAlign.Center
             )
-        }
-        
-        if (!isProfileOwner && !isRunningInWorkProfile) {
-            if (hasOtherProfiles) {
+
+            if (isRunningInWorkProfile) {
                 Text(
-                    text = "Warning: Another profile (Work Profile or Secure Folder) detected. " +
-                    "Android typically allows only ONE work profile. Provisioning may fail.",
-                    color = androidx.compose.ui.graphics.Color.Yellow,
-                    textAlign = TextAlign.Center,
+                    text = "This app is running INSIDE the Work Profile.",
                     modifier = Modifier.padding(bottom = 16.dp),
+                    textAlign = TextAlign.Center,
+                    color = androidx.compose.ui.graphics.Color.White
+                )
+            } else {
+                Text(
+                    text = "This app is running in the MAIN Profile.",
+                    modifier = Modifier.padding(bottom = 16.dp),
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            if (!isProfileOwner && !isRunningInWorkProfile) {
+                if (hasOtherProfiles) {
+                    Text(
+                        text = "Warning: Another profile (Work Profile or Secure Folder) detected. " +
+                                "Android typically allows only ONE work profile. Provisioning may fail.",
+                        color = androidx.compose.ui.graphics.Color.Yellow,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(bottom = 16.dp),
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Text(
+                    text = "If you already set up a profile, look for this app with a briefcase icon in your app drawer.",
+                    modifier = Modifier.padding(bottom = 16.dp),
+                    textAlign = TextAlign.Center,
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall
                 )
-            }
 
-            Text(
-                text = "If you already set up a profile, look for this app with a briefcase icon in your app drawer.",
-                modifier = Modifier.padding(bottom = 16.dp),
-                textAlign = TextAlign.Center,
-                style = androidx.compose.material3.MaterialTheme.typography.bodySmall
-            )
-            
-            if (isAdminActive) {
-                Button(onClick = onProvisionClick) {
-                    Text(text = "Set up Work Profile")
+                if (isAdminActive) {
+                    Button(onClick = onProvisionClick) {
+                        Text(text = "Set up Work Profile")
+                    }
+                } else {
+                    Button(onClick = onActivateAdminClick) {
+                        Text(text = "Set Up Device Admin")
+                    }
                 }
             } else {
-                Button(onClick = onActivateAdminClick) {
-                    Text(text = "Set Up Device Admin")
-                }
-            }
-        } else {
-            if (isProfileOwner) {
-                Text(
-                    text = "Work Profile is active and managed by this app!",
-                    modifier = Modifier.padding(bottom = 16.dp),
-                    textAlign = TextAlign.Center
-                )
-                
-                Text(
-                    text = "Quick Actions",
-                    modifier = Modifier.padding(top = 16.dp),
-                    textAlign = TextAlign.Center
-                )
-                Button(onClick = { onInstallAppClick("com.android.chrome") }) {
-                    Text(text = "Enable Chrome in Work Profile")
-                }
-                
-                Button(
-                    onClick = { onInstallAppClick("com.google.android.apps.maps") },
-                    modifier = Modifier.padding(top = 8.dp)
-                ) {
-                    Text(text = "Enable Maps in Work Profile")
-                }
-
-                Button(
-                    onClick = onDeleteProfileClick,
-                    modifier = Modifier.padding(top = 32.dp),
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                        containerColor = androidx.compose.ui.graphics.Color.Red
+                if (isProfileOwner) {
+                    Text(
+                        text = "Work Profile is active and managed by this app!",
+                        modifier = Modifier.padding(bottom = 16.dp),
+                        textAlign = TextAlign.Center
                     )
-                ) {
-                    Text(text = "Delete Work Profile", color = androidx.compose.ui.graphics.Color.White)
+
+                    Text(
+                        text = "Quick Actions",
+                        modifier = Modifier.padding(top = 16.dp),
+                        textAlign = TextAlign.Center
+                    )
+                    Button(onClick = { onInstallAppClick("com.android.chrome") }) {
+                        Text(text = "Enable Chrome in Work Profile")
+                    }
+
+                    Button(
+                        onClick = { onInstallAppClick("com.google.android.apps.maps") },
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        Text(text = "Enable Maps in Work Profile")
+                    }
+
+                    Button(
+                        onClick = onDeleteProfileClick,
+                        modifier = Modifier.padding(top = 32.dp),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = androidx.compose.ui.graphics.Color.Red
+                        )
+                    ) {
+                        Text(text = "Delete Work Profile", color = androidx.compose.ui.graphics.Color.White)
+                    }
+                } else {
+                    Text(
+                        text = "You are in the Work Profile, but this instance is not the owner. " +
+                                "This usually happens if provisioning was partially successful or " +
+                                "if another app (like Knox) is managing this profile.",
+                        modifier = Modifier.padding(bottom = 16.dp),
+                        textAlign = TextAlign.Center
+                    )
                 }
-            } else {
-                Text(
-                    text = "You are in the Work Profile, but this instance is not the owner. " +
-                           "This usually happens if provisioning was partially successful or " +
-                           "if another app (like Knox) is managing this profile.",
-                    modifier = Modifier.padding(bottom = 16.dp),
-                    textAlign = TextAlign.Center
-                )
             }
         }
     }
