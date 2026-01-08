@@ -5,6 +5,7 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.widget.Toast
 
 class MyDeviceAdminReceiver : DeviceAdminReceiver() {
@@ -23,6 +24,7 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
             dpm.setProfileEnabled(adminComponentName)
         } catch (e: Exception) {
             // Error enabling profile
+            Log.e("ProfileManager", "Error enabling profile: ${e.message}", e)
         }
 
         Toast.makeText(context, "Profile Provisioning Complete", Toast.LENGTH_SHORT).show()

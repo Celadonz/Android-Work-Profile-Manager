@@ -7,7 +7,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.UserManager
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -34,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import com.mallick.nil.profilemanager.ui.theme.Pink40
 import com.mallick.nil.profilemanager.ui.theme.ProfileManagerTheme
 import com.mallick.nil.profilemanager.ui.theme.Purple40
+import com.mallick.nil.profilemanager.ui.theme.PurpleGrey40
+import com.mallick.nil.profilemanager.ui.theme.PurpleGrey80
 
 
 class MainActivity : ComponentActivity() {
@@ -104,7 +105,7 @@ class MainActivity : ComponentActivity() {
         val userManager = getSystemService(UserManager::class.java)
         return userManager.isManagedProfile
     }
-    
+
     private fun updateProfileStatus() {
         val isOwner = devicePolicyManager.isProfileOwnerApp(packageName)
         val isActive = devicePolicyManager.isAdminActive(adminComponentName)
@@ -214,53 +215,56 @@ fun MainScreen(
                 style = androidx.compose.material3.MaterialTheme.typography.headlineMedium
             )
         } else {
+            if (isRunningInWorkProfile) {
+                Text(
+                    text = "This app is running in the Work Profile.",
+                    modifier = Modifier.padding(bottom = 16.dp),
+                    textAlign = TextAlign.Center,
+                    color = PurpleGrey40
+                )
+            } else {
+                Text(
+                    text = "This app is running in the Main Profile.",
+                    modifier = Modifier.padding(bottom = 16.dp),
+                    textAlign = TextAlign.Center,
+                    color = PurpleGrey80
+                )
+            }
+
             Text(
                 text = if (isProfileOwner) {
                     "This app is the owner of the Work Profile."
                 } else if (hasWorkProfile) {
                     "A Work Profile already exists."
                 } else if (isAdminActive) {
-                    "Device Admin is active and managing this profile."
+                    "This app is a Device Admin. You can set up a Work Profile now."
                 } else run {
-                    "Device Admin is not active. Please enable it to set up the Work Profile."
+                    "This app is not a Device Admin. Please set it as a Device Admin to set up the Work Profile."
                 },
                 modifier = Modifier.padding(bottom = 8.dp),
                 textAlign = TextAlign.Center
             )
 
-            if (isRunningInWorkProfile) {
-                Text(
-                    text = "This app is running INSIDE the Work Profile.",
-                    modifier = Modifier.padding(bottom = 16.dp),
-                    textAlign = TextAlign.Center,
-                    color = androidx.compose.ui.graphics.Color.White
-                )
-            } else {
-                Text(
-                    text = "This app is running in the MAIN Profile.",
-                    modifier = Modifier.padding(bottom = 16.dp),
-                    textAlign = TextAlign.Center
-                )
-            }
-
-            if (!isProfileOwner && !isRunningInWorkProfile) {
-                if (hasOtherProfiles) {
+            if (!isRunningInWorkProfile) {
+                if (hasWorkProfile) {
                     Text(
-                        text = "Warning: Another profile (Work Profile or Secure Folder) detected. " +
-                                "Android typically allows only ONE work profile. Provisioning may fail.",
-                        color = androidx.compose.ui.graphics.Color.Yellow,
-                        textAlign = TextAlign.Center,
+                        text = "If you already set up a profile, look for this app with a briefcase icon in your app drawer.",
                         modifier = Modifier.padding(bottom = 16.dp),
+                        textAlign = TextAlign.Center,
                         style = androidx.compose.material3.MaterialTheme.typography.bodySmall
                     )
+                } else {
+                    if (hasOtherProfiles) {
+                        Text(
+                            text = "Warning: Another profile (Work Profile, Dual Messenger or Secure Folder) detected. " +
+                                    "Android typically allows only ONE work profile. Provisioning may fail.",
+                            color = androidx.compose.ui.graphics.Color.Yellow,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(bottom = 16.dp),
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
-
-                Text(
-                    text = "If you already set up a profile, look for this app with a briefcase icon in your app drawer.",
-                    modifier = Modifier.padding(bottom = 16.dp),
-                    textAlign = TextAlign.Center,
-                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall
-                )
 
                 if (isAdminActive) {
                     if (!hasWorkProfile) {
