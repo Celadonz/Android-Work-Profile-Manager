@@ -19,7 +19,11 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
         val adminComponentName = ComponentName(context, MyDeviceAdminReceiver::class.java)
         
         // Enable the profile owner app in the work profile
-        dpm.setProfileEnabled(adminComponentName)
+        try {
+            dpm.setProfileEnabled(adminComponentName)
+        } catch (e: Exception) {
+            // Error enabling profile
+        }
 
         Toast.makeText(context, "Profile Provisioning Complete", Toast.LENGTH_SHORT).show()
     }
