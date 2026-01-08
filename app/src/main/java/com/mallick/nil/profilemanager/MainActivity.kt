@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
     private var isProfileOwner by mutableStateOf(false)
     private var isAdminActive by mutableStateOf(false)
     private var isRunningInWorkProfile by mutableStateOf(false)
+    private var hasWorkProfile by mutableStateOf(false)
     private var hasOtherProfiles by mutableStateOf(false)
 
     private val provisionLauncher = registerForActivityResult(
@@ -53,10 +54,6 @@ class MainActivity : ComponentActivity() {
         } else {
             Toast.makeText(this, "Provisioning failed or cancelled.", Toast.LENGTH_LONG).show()
         }
-    }
-
-    private fun canCreateWorkProfile(): Boolean {
-        return true
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,6 +72,7 @@ class MainActivity : ComponentActivity() {
                         isProfileOwner = isProfileOwner,
                         isAdminActive = isAdminActive,
                         isRunningInWorkProfile = isRunningInWorkProfile,
+                        hasWorkProfile = hasWorkProfile,
                         hasOtherProfiles = hasOtherProfiles,
                         isSamsungDevice = isSamsungDevice(),
                         onProvisionClick = { provisionManagedProfile() },
@@ -99,7 +97,6 @@ class MainActivity : ComponentActivity() {
     fun Context.hasWorkProfile(): Boolean {
         val userManager = getSystemService(UserManager::class.java)
         // Owner profile will see exactly one extra profile if Work Profile exists
-        Log.i("ProfileManager", "userProfiles: ${userManager.userProfiles}")
         return userManager.userProfiles.size > 3
     }
 
@@ -107,48 +104,22 @@ class MainActivity : ComponentActivity() {
         val userManager = getSystemService(UserManager::class.java)
         return userManager.isManagedProfile
     }
-
-
+    
     private fun updateProfileStatus() {
         val isOwner = devicePolicyManager.isProfileOwnerApp(packageName)
         val isActive = devicePolicyManager.isAdminActive(adminComponentName)
-        
+        val runningInWork = isRunningInWorkProfile()
+        val hasWork = hasWorkProfile()
+
         val userManager = getSystemService(Context.USER_SERVICE) as android.os.UserManager
-
-        /*var hasWorkProfile = false*/
-
         val profiles = userManager.userProfiles
-
-        /*for (user in profiles) {
-            Log.i("ProfileManager", "user: $user")
-            if (userManager.isManagedProfile) {
-                hasWorkProfile = true
-                break
-            }
-        }*/
-
-        Log.i("ProfileManager", "manufacturer: ${isSamsungDevice()}")
-
-        val hasWorkProfile = hasWorkProfile()
-
-        Log.i("ProfileManager", "hasWorkProfile: $hasWorkProfile")
-
-        
-        /*val isMainProfile = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            !userManager.isManagedProfile
-        } else {
-            // Fallback for older APIs if needed, but isProfileOwnerApp usually suffices
-            !devicePolicyManager.isProfileOwnerApp(packageName)
-        }*/
-
         val hasOthers = profiles.any { it != android.os.Process.myUserHandle() }
 
         isProfileOwner = isOwner
         isAdminActive = isActive
-        isRunningInWorkProfile = false
+        isRunningInWorkProfile = runningInWork
         hasOtherProfiles = hasOthers
-
-        Log.e("ProfileManager", "$isProfileOwner $isActive $isRunningInWorkProfile $hasOthers")
+        hasWorkProfile = hasWork
     }
 
     private fun provisionManagedProfile() {
@@ -213,6 +184,7 @@ fun MainScreen(
     isProfileOwner: Boolean,
     isAdminActive: Boolean,
     isRunningInWorkProfile: Boolean,
+    hasWorkProfile: Boolean,
     hasOtherProfiles: Boolean,
     isSamsungDevice: Boolean,
     onProvisionClick: () -> Unit,
@@ -245,6 +217,8 @@ fun MainScreen(
             Text(
                 text = if (isProfileOwner) {
                     "This app is the owner of the Work Profile."
+                } else if (hasWorkProfile) {
+                    "A Work Profile already exists."
                 } else if (isAdminActive) {
                     "Device Admin is active and managing this profile."
                 } else run {
@@ -289,8 +263,10 @@ fun MainScreen(
                 )
 
                 if (isAdminActive) {
-                    Button(onClick = onProvisionClick) {
-                        Text(text = "Set up Work Profile")
+                    if (!hasWorkProfile) {
+                        Button(onClick = onProvisionClick) {
+                            Text(text = "Set up Work Profile")
+                        }
                     }
                 } else {
                     Button(onClick = onActivateAdminClick) {
