@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -107,6 +108,8 @@ class MainActivity : ComponentActivity() {
         isAdminActive = isActive
         isRunningInWorkProfile = !isMainProfile
         hasOtherProfiles = hasOthers
+
+        Log.e("ProfileManager", "$isProfileOwner $isActive $isRunningInWorkProfile $hasOthers")
     }
 
     private fun provisionManagedProfile() {
@@ -191,7 +194,6 @@ fun MainScreen(
             text = when {
                 isProfileOwner -> "Status: Profile Owner (Active)"
                 isAdminActive -> "Status: Device Admin (Active)"
-                isRunningInWorkProfile -> "Status: Running in Managed Profile"
                 else -> "Status: Not Provisioned"
             },
             modifier = Modifier.padding(bottom = 8.dp),
@@ -224,17 +226,17 @@ fun MainScreen(
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall
                 )
             }
+
+            Text(
+                text = "If you already set up a profile, look for this app with a briefcase icon in your app drawer.",
+                modifier = Modifier.padding(bottom = 16.dp),
+                textAlign = TextAlign.Center,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+            )
             
             Button(onClick = onProvisionClick) {
                 Text(text = "Set up Work Profile")
             }
-            
-            Text(
-                text = "If you already set up a profile, look for this app with a briefcase icon in your app drawer.",
-                modifier = Modifier.padding(top = 16.dp),
-                textAlign = TextAlign.Center,
-                style = androidx.compose.material3.MaterialTheme.typography.bodySmall
-            )
         } else {
             if (isProfileOwner) {
                 Text(
