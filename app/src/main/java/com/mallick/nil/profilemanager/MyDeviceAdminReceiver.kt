@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import android.widget.Toast
-import androidx.core.content.edit
 
 class MyDeviceAdminReceiver : DeviceAdminReceiver() {
 
@@ -17,18 +16,16 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
     }
 
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
-        super.onProfileProvisioningComplete(context, intent)
         val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         val adminComponentName = ComponentName(context, MyDeviceAdminReceiver::class.java)
-        
-        // Enable the profile owner app in the work profile
+
+        // Enable the work profile
         try {
             dpm.setProfileEnabled(adminComponentName)
         } catch (e: Exception) {
-            // Error enabling profile
-            Log.e("ProfileManager", "Error enabling profile: ${e.message}", e)
+            Log.e("MyDeviceAdminReceiver", "Failed to enable profile", e)
         }
 
-        Toast.makeText(context, "Profile Provisioning Complete", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Work Profile Enabled", Toast.LENGTH_SHORT).show()
     }
 }
