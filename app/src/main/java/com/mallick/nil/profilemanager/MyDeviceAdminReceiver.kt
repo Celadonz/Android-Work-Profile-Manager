@@ -30,10 +30,5 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
         }
 
         Toast.makeText(context, "Profile Provisioning Complete", Toast.LENGTH_SHORT).show()
-
-        val prefs = context.getSharedPreferences("dpc_prefs", Context.MODE_PRIVATE)
-        prefs.edit {
-            putBoolean("provisioned", true)
-        }
     }
 }

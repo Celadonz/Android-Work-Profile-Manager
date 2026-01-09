@@ -69,10 +69,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         devicePolicyManager = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         adminComponentName = ComponentName(this, MyDeviceAdminReceiver::class.java)
-
-        prefs = getSharedPreferences("dpc_prefs", Context.MODE_PRIVATE)
-
-
         enableEdgeToEdge()
         setContent {
             ProfileManagerTheme {
