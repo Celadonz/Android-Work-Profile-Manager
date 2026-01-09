@@ -4,6 +4,7 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -51,26 +52,16 @@ class MainActivity : ComponentActivity() {
     private var hasWorkProfile by mutableStateOf(false)
     private var hasOtherProfiles by mutableStateOf(false)
     private var isLoading by mutableStateOf(false)
-
-    companion object {
-        fun demo() {
-            Log.i("ProfileManager", "Demo mode enabled")
-        }
-    }
+    private lateinit var prefs: SharedPreferences
 
     private val provisionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-
+        isLoading = false
         if (result.resultCode == RESULT_OK) {
             Toast.makeText(this, "Provisioning started", Toast.LENGTH_SHORT).show()
-            Handler(Looper.getMainLooper()).postDelayed({
-                updateProfileStatus()
-                isLoading = false
-            }, 5000L)
         } else {
             Toast.makeText(this, "Provisioning failed or cancelled.", Toast.LENGTH_LONG).show()
-            isLoading = false
         }
     }
 
@@ -79,7 +70,8 @@ class MainActivity : ComponentActivity() {
         devicePolicyManager = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         adminComponentName = ComponentName(this, MyDeviceAdminReceiver::class.java)
 
-        updateProfileStatus()
+        prefs = getSharedPreferences("dpc_prefs", Context.MODE_PRIVATE)
+
 
         enableEdgeToEdge()
         setContent {
@@ -120,8 +112,19 @@ class MainActivity : ComponentActivity() {
     }
 
     fun Context.isRunningInWorkProfile(): Boolean {
+        if (!hasWorkProfile()) return false
+
         val userManager = getSystemService(UserManager::class.java)
-        return userManager.isManagedProfile
+
+        // API 30+ has a direct, public API.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return userManager.isManagedProfile
+        }
+
+        val dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val isInWorkProfile = dpm.isProfileOwnerApp(packageName)
+
+        return isInWorkProfile
     }
 
     private fun updateProfileStatus() {
