@@ -19,8 +19,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
@@ -31,6 +33,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -73,6 +76,8 @@ class MainActivity : ComponentActivity() {
         internal const val PREFS_NAME = "ProfileManagerPrefs"
         internal const val KEY_SECURE_FOLDER_ACTIVE = "secure_folder_active"
         internal const val KEY_SECURE_FOLDER_CONFIGURED = "secure_folder_configured"
+        internal const val KEY_MANUAL_THRESHOLD_ENABLED = "manual_threshold_enabled"
+        internal const val KEY_MANUAL_THRESHOLD_VALUE = "manual_threshold_value"
     }
 
     // Polling mechanism
@@ -239,13 +244,20 @@ class MainActivity : ComponentActivity() {
         val profileCount = userManager.userProfiles.size
         val isProfileOwner = dpm.isProfileOwnerApp(packageName)
 
-        // Check if Secure Folder is active from SharedPreferences
-        val isSecureFolderActive = sharedPreferences.getBoolean(KEY_SECURE_FOLDER_ACTIVE, false)
+        // Check if manual threshold is enabled
+        val isManualThresholdEnabled = sharedPreferences.getBoolean(KEY_MANUAL_THRESHOLD_ENABLED, false)
 
-        // Owner profile will see exactly one extra profile if Work Profile exists
-        // If Secure Folder is active: profileCount > 3 (owner + system + secure folder = 3, work profile makes it 4)
-        // If Secure Folder is not active: profileCount > 2 (owner + system = 2, work profile makes it 3)
-        val threshold = if (isSecureFolderActive) 3 else 2
+        val threshold = if (isManualThresholdEnabled) {
+            // Use manual threshold value (default to 3 if not set)
+            sharedPreferences.getInt(KEY_MANUAL_THRESHOLD_VALUE, 3)
+        } else {
+            // Check if Secure Folder is active from SharedPreferences
+            val isSecureFolderActive = sharedPreferences.getBoolean(KEY_SECURE_FOLDER_ACTIVE, false)
+            // If Secure Folder is active: profileCount > 3 (owner + system + secure folder = 3, work profile makes it 4)
+            // If Secure Folder is not active: profileCount > 2 (owner + system = 2, work profile makes it 3)
+            if (isSecureFolderActive) 3 else 2
+        }
+
         val hasProfile = profileCount > threshold && !isProfileOwner
         return hasProfile
     }
@@ -514,6 +526,12 @@ fun SettingsBottomSheet(
     var isSecureFolderActive by remember {
         mutableStateOf(sharedPreferences.getBoolean(MainActivity.KEY_SECURE_FOLDER_ACTIVE, false))
     }
+    var isManualThresholdEnabled by remember {
+        mutableStateOf(sharedPreferences.getBoolean(MainActivity.KEY_MANUAL_THRESHOLD_ENABLED, false))
+    }
+    var manualThresholdValue by remember {
+        mutableStateOf(sharedPreferences.getInt(MainActivity.KEY_MANUAL_THRESHOLD_VALUE, 3).toString())
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -554,6 +572,7 @@ fun SettingsBottomSheet(
                 }
                 Switch(
                     checked = isSecureFolderActive,
+                    enabled = !isManualThresholdEnabled,
                     onCheckedChange = { newValue ->
                         isSecureFolderActive = newValue
                         sharedPreferences.edit {
@@ -564,6 +583,76 @@ fun SettingsBottomSheet(
                             putBoolean(MainActivity.KEY_SECURE_FOLDER_CONFIGURED, true)
                         }
                     }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Manual Threshold Toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Manual Threshold",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = "Override automatic detection",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
+                Switch(
+                    checked = isManualThresholdEnabled,
+                    onCheckedChange = { newValue ->
+                        isManualThresholdEnabled = newValue
+                        sharedPreferences.edit {
+                            putBoolean(MainActivity.KEY_MANUAL_THRESHOLD_ENABLED, newValue)
+                            if (newValue) {
+                                // Set default threshold to 3 when enabling
+                                putInt(MainActivity.KEY_MANUAL_THRESHOLD_VALUE, 3)
+                                manualThresholdValue = "3"
+                            }
+                        }
+                    }
+                )
+            }
+
+            // Manual Threshold Input Field (shown when manual threshold is enabled)
+            if (isManualThresholdEnabled) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = manualThresholdValue,
+                    onValueChange = { newValue ->
+                        // Only allow digits
+                        if (newValue.isEmpty() || newValue.all { it.isDigit() }) {
+                            manualThresholdValue = newValue
+                            // Save to SharedPreferences if valid
+                            newValue.toIntOrNull()?.let { intValue ->
+                                sharedPreferences.edit {
+                                    putInt(MainActivity.KEY_MANUAL_THRESHOLD_VALUE, intValue)
+                                }
+                            }
+                        }
+                    },
+                    label = { Text("Threshold Value") },
+                    placeholder = { Text("Enter threshold (e.g., 3)") },
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    singleLine = true
+                )
+                Text(
+                    text = "Work profile is detected if profileCount > threshold",
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
                 )
             }
         }
