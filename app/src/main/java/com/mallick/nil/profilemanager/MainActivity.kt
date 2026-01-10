@@ -4,6 +4,7 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -17,15 +18,28 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,17 +51,29 @@ import androidx.compose.ui.unit.dp
 import com.mallick.nil.profilemanager.ui.theme.Pink40
 import com.mallick.nil.profilemanager.ui.theme.ProfileManagerTheme
 import com.mallick.nil.profilemanager.ui.theme.Purple40
+import androidx.core.content.edit
 
 
 class MainActivity : ComponentActivity() {
     private lateinit var devicePolicyManager: DevicePolicyManager
     private lateinit var adminComponentName: ComponentName
+    private lateinit var sharedPreferences: SharedPreferences
+
     private var isProfileOwner by mutableStateOf(false)
     private var isAdminActive by mutableStateOf(false)
     private var isRunningInWorkProfile by mutableStateOf(false)
     private var hasWorkProfile by mutableStateOf(false)
     private var hasOtherProfiles by mutableStateOf(false)
     private var isLoading by mutableStateOf(false)
+    private var showBottomSheet by mutableStateOf(false)
+    private var showSecureFolderDialog by mutableStateOf(false)
+    private var isSecureFolderConfigured by mutableStateOf(false)
+
+    companion object {
+        internal const val PREFS_NAME = "ProfileManagerPrefs"
+        internal const val KEY_SECURE_FOLDER_ACTIVE = "secure_folder_active"
+        internal const val KEY_SECURE_FOLDER_CONFIGURED = "secure_folder_configured"
+    }
 
     // Polling mechanism
     private val pollingHandler = Handler(Looper.getMainLooper())
@@ -91,6 +117,15 @@ class MainActivity : ComponentActivity() {
 
         devicePolicyManager = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
         adminComponentName = ComponentName(this, MyDeviceAdminReceiver::class.java)
+        sharedPreferences = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+        // Check if Secure Folder setting is configured
+        isSecureFolderConfigured = sharedPreferences.getBoolean(KEY_SECURE_FOLDER_CONFIGURED, false)
+
+        // If not configured, show dialog at startup
+        if (!isSecureFolderConfigured) {
+            showSecureFolderDialog = true
+        }
 
         enableEdgeToEdge()
 
@@ -99,21 +134,82 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ProfileManagerTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Column(modifier = Modifier.padding(innerPadding)) {
-                        MainScreen(
-                            modifier = Modifier,
-                            isProfileOwner = isProfileOwner,
-                            isAdminActive = isAdminActive,
-                            isRunningInWorkProfile = isRunningInWorkProfile,
-                            hasWorkProfile = hasWorkProfile,
-                            hasOtherProfiles = hasOtherProfiles,
-                            isLoading = isLoading,
-                            isSamsungDevice = isSamsungDevice(),
-                            onProvisionClick = { provisionManagedProfile() },
-                            onActivateAdminClick = { activateDeviceAdmin() },
-                            onInstallAppClick = { packageName -> installAppInProfile(packageName) },
-                            onDeleteProfileClick = { deleteWorkProfile() }
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    floatingActionButton = {
+                        // Only show FAB after Secure Folder is configured
+                        if (isSecureFolderConfigured) {
+                            FloatingActionButton(onClick = { showBottomSheet = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Settings"
+                                )
+                            }
+                        }
+                    }
+                ) { innerPadding ->
+                    // Only show content after Secure Folder is configured
+                    if (isSecureFolderConfigured) {
+                        Column(modifier = Modifier.padding(innerPadding)) {
+                            MainScreen(
+                                modifier = Modifier,
+                                isProfileOwner = isProfileOwner,
+                                isAdminActive = isAdminActive,
+                                isRunningInWorkProfile = isRunningInWorkProfile,
+                                hasWorkProfile = hasWorkProfile,
+                                hasOtherProfiles = hasOtherProfiles,
+                                isLoading = isLoading,
+                                isSamsungDevice = isSamsungDevice(),
+                                onProvisionClick = { provisionManagedProfile() },
+                                onActivateAdminClick = { activateDeviceAdmin() },
+                                onDeleteProfileClick = { deleteWorkProfile() }
+                            )
+                        }
+
+                        if (showBottomSheet) {
+                            SettingsBottomSheet(
+                                sharedPreferences = sharedPreferences,
+                                onDismiss = { showBottomSheet = false }
+                            )
+                        }
+                    }
+
+                    if (showSecureFolderDialog) {
+                        // Add a gradient background for the initial configuration screen
+                        val dialogGradientBrush = Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF1A237E), // Deep Blue
+                                Color(0xFF283593), // Indigo
+                                Color(0xFF3949AB)  // Blue
+                            ),
+                            start = Offset(0f, 0f),
+                            end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+                        )
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(brush = dialogGradientBrush)
+                        ) {
+                            // Empty background layer
+                        }
+
+                        SecureFolderConfigDialog(
+                            onConfirm = { isActive ->
+                                sharedPreferences.edit {
+                                    putBoolean(KEY_SECURE_FOLDER_ACTIVE, isActive)
+                                    putBoolean(KEY_SECURE_FOLDER_CONFIGURED, true)
+                                }
+                                isSecureFolderConfigured = true
+                                showSecureFolderDialog = false
+
+                                // Update profile status with the new threshold setting
+                                updateProfileStatus()
+                            },
+                            onDismiss = {
+                                // Don't allow dismissing without making a choice at startup
+                                // User must choose to proceed
+                            }
                         )
                     }
                 }
@@ -143,11 +239,14 @@ class MainActivity : ComponentActivity() {
         val profileCount = userManager.userProfiles.size
         val isProfileOwner = dpm.isProfileOwnerApp(packageName)
 
+        // Check if Secure Folder is active from SharedPreferences
+        val isSecureFolderActive = sharedPreferences.getBoolean(KEY_SECURE_FOLDER_ACTIVE, false)
 
         // Owner profile will see exactly one extra profile if Work Profile exists
-        // Typically: owner profile sees 3 user profiles (itself + system users)
-        // When work profile is added, it becomes 4
-        val hasProfile = profileCount > 3 && !isProfileOwner
+        // If Secure Folder is active: profileCount > 3 (owner + system + secure folder = 3, work profile makes it 4)
+        // If Secure Folder is not active: profileCount > 2 (owner + system = 2, work profile makes it 3)
+        val threshold = if (isSecureFolderActive) 3 else 2
+        val hasProfile = profileCount > threshold && !isProfileOwner
         return hasProfile
     }
 
@@ -194,6 +293,10 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        startProvisioning()
+    }
+
+    private fun startProvisioning() {
         isLoading = true
         val intent = Intent(DevicePolicyManager.ACTION_PROVISION_MANAGED_PROFILE).apply {
             putExtra(DevicePolicyManager.EXTRA_PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME, adminComponentName)
@@ -215,18 +318,6 @@ class MainActivity : ComponentActivity() {
             putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Required to set up the Work Profile.")
         }
         startActivity(adminIntent)
-    }
-
-    private fun installAppInProfile(packageName: String) {
-        if (devicePolicyManager.isProfileOwnerApp(this.packageName)) {
-             // Already managed or something
-        }
-        try {
-            devicePolicyManager.enableSystemApp(adminComponentName, packageName)
-            Toast.makeText(this, "Enabled $packageName", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Error enabling $packageName: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
     }
 
     private fun deleteWorkProfile() {
@@ -267,7 +358,6 @@ fun MainScreen(
     isSamsungDevice: Boolean,
     onProvisionClick: () -> Unit,
     onActivateAdminClick: () -> Unit,
-    onInstallAppClick: (String) -> Unit,
     onDeleteProfileClick: () -> Unit
 ) {
     val gradientBrush = Brush.linearGradient(
@@ -376,6 +466,105 @@ fun MainScreen(
                         textAlign = TextAlign.Center
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun SecureFolderConfigDialog(
+    onConfirm: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(text = "Secure Folder Configuration")
+        },
+        text = {
+            Text(
+                text = "Do you have Samsung Secure Folder active on this device?\n\n" +
+                        "This setting helps the app correctly detect if a Work Profile exists."
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(true) }
+            ) {
+                Text("Yes, I have Secure Folder")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = { onConfirm(false) }
+            ) {
+                Text("No, I don't have Secure Folder")
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsBottomSheet(
+    sharedPreferences: SharedPreferences,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState()
+    var isSecureFolderActive by remember {
+        mutableStateOf(sharedPreferences.getBoolean(MainActivity.KEY_SECURE_FOLDER_ACTIVE, false))
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(
+                text = "Settings",
+                style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(bottom = 24.dp)
+            )
+
+            // Secure Folder Switch
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Secure Folder",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = if (isSecureFolderActive) "Active" else "Inactive",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
+                Switch(
+                    checked = isSecureFolderActive,
+                    onCheckedChange = { newValue ->
+                        isSecureFolderActive = newValue
+                        sharedPreferences.edit {
+                            putBoolean(
+                                MainActivity.KEY_SECURE_FOLDER_ACTIVE,
+                                newValue
+                            )
+                            putBoolean(MainActivity.KEY_SECURE_FOLDER_CONFIGURED, true)
+                        }
+                    }
+                )
             }
         }
     }
