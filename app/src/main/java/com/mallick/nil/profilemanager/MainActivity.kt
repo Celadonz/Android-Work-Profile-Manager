@@ -9,7 +9,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.UserManager
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -38,8 +37,6 @@ import androidx.compose.ui.unit.dp
 import com.mallick.nil.profilemanager.ui.theme.Pink40
 import com.mallick.nil.profilemanager.ui.theme.ProfileManagerTheme
 import com.mallick.nil.profilemanager.ui.theme.Purple40
-import com.mallick.nil.profilemanager.ui.theme.PurpleGrey40
-import com.mallick.nil.profilemanager.ui.theme.PurpleGrey80
 
 
 class MainActivity : ComponentActivity() {
@@ -361,22 +358,6 @@ fun MainScreen(
                 }
             } else {
                 if (isProfileOwner) {
-                    Text(
-                        text = "Quick Actions",
-                        modifier = Modifier.padding(top = 16.dp),
-                        textAlign = TextAlign.Center
-                    )
-                    Button(onClick = { onInstallAppClick("com.android.chrome") }) {
-                        Text(text = "Enable Chrome in Work Profile")
-                    }
-
-                    Button(
-                        onClick = { onInstallAppClick("com.google.android.apps.maps") },
-                        modifier = Modifier.padding(top = 8.dp)
-                    ) {
-                        Text(text = "Enable Maps in Work Profile")
-                    }
-
                     Button(
                         onClick = onDeleteProfileClick,
                         modifier = Modifier.padding(top = 32.dp),
