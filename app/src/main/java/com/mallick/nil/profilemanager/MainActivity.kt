@@ -5,13 +5,16 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.UserManager
+import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
+import androidx.documentfile.provider.DocumentFile
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -120,6 +123,33 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Step 1: Pick the source file from main profile
+    private var selectedSourceFileUri: Uri? = null
+
+    private val sourceFilePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { sourceUri ->
+            // Store the source file URI and open directory picker
+            selectedSourceFileUri = sourceUri
+            openWorkProfileDirectoryPicker()
+        }
+    }
+
+    // Step 2: Pick destination directory in work profile
+    private val workProfileDirectoryPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            result.data?.data?.let { destinationTreeUri ->
+                selectedSourceFileUri?.let { sourceUri ->
+                    copyFileToWorkProfileDirectory(sourceUri, destinationTreeUri)
+                }
+            }
+        }
+        selectedSourceFileUri = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -133,6 +163,11 @@ class MainActivity : ComponentActivity() {
         // If not configured, show dialog at startup
         if (!isSecureFolderConfigured) {
             showSecureFolderDialog = true
+        }
+
+        // Set up cross-profile intent filters if we're the profile owner
+        if (devicePolicyManager.isProfileOwnerApp(packageName)) {
+            setupCrossProfileIntentFilters()
         }
 
         enableEdgeToEdge()
@@ -173,7 +208,8 @@ class MainActivity : ComponentActivity() {
                                 onProvisionClick = { provisionManagedProfile() },
                                 onActivateAdminClick = { activateDeviceAdmin() },
                                 onDeleteProfileClick = { deleteWorkProfile() },
-                                onEnableAppsClick = { showEnableAppsSheet = true }
+                                onEnableAppsClick = { showEnableAppsSheet = true },
+                                onShareFileClick = { pickFileToShare() }
                             )
                         }
 
@@ -243,7 +279,6 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         stopWorkProfilePolling()
     }
-
 
     override fun onResume() {
         super.onResume()
@@ -362,6 +397,181 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun setupCrossProfileIntentFilters() {
+        try {
+            if (!devicePolicyManager.isProfileOwnerApp(packageName)) {
+                return
+            }
+
+            Log.d("ProfileManager", "Setting up cross-profile intent filters")
+
+            // Clear any existing cross-profile intent filters first
+            try {
+                devicePolicyManager.clearCrossProfileIntentFilters(adminComponentName)
+            } catch (e: Exception) {
+                Log.w("ProfileManager", "Could not clear existing filters: ${e.message}")
+            }
+
+            // Create intent filter for opening document tree (directory picker)
+            val openTreeFilter = android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                addCategory(Intent.CATEGORY_DEFAULT)
+                try {
+                    addDataType("*/*")
+                } catch (e: Exception) {
+                    // ACTION_OPEN_DOCUMENT_TREE doesn't use data types
+                }
+            }
+
+            // Create intent filter for opening documents (file picker)
+            val openDocumentFilter = android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_OPEN_DOCUMENT)
+                addCategory(Intent.CATEGORY_OPENABLE)
+                addCategory(Intent.CATEGORY_DEFAULT)
+                addDataType("*/*")
+            }
+
+            // Create intent filter for getting content
+            val getContentFilter = android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_GET_CONTENT)
+                addCategory(Intent.CATEGORY_OPENABLE)
+                addCategory(Intent.CATEGORY_DEFAULT)
+                addDataType("*/*")
+            }
+
+            // FLAG_MANAGED_CAN_ACCESS_PARENT: Allows work profile to access parent (personal) profile
+            // FLAG_PARENT_CAN_ACCESS_MANAGED: Allows parent profile to access work profile
+            val flags = DevicePolicyManager.FLAG_MANAGED_CAN_ACCESS_PARENT or
+                       DevicePolicyManager.FLAG_PARENT_CAN_ACCESS_MANAGED
+
+            // Add the intent filters
+            devicePolicyManager.addCrossProfileIntentFilter(
+                adminComponentName,
+                openTreeFilter,
+                flags
+            )
+
+            devicePolicyManager.addCrossProfileIntentFilter(
+                adminComponentName,
+                openDocumentFilter,
+                flags
+            )
+
+            devicePolicyManager.addCrossProfileIntentFilter(
+                adminComponentName,
+                getContentFilter,
+                flags
+            )
+
+            Log.d("ProfileManager", "Cross-profile intent filters added successfully")
+
+        } catch (e: Exception) {
+            Log.e("ProfileManager", "Error setting up cross-profile intent filters", e)
+            Toast.makeText(
+                this,
+                "Warning: Could not set up cross-profile access: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun openWorkProfileDirectoryPicker() {
+        try {
+            // Create an intent to open the document tree picker
+            // When running in work profile, this will show work profile storage by default
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+            }
+
+            workProfileDirectoryPickerLauncher.launch(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error opening directory picker: ${e.message}", Toast.LENGTH_LONG).show()
+            Log.e("ProfileManager", "Error opening directory picker", e)
+        }
+    }
+
+    private fun copyFileToWorkProfileDirectory(sourceUri: Uri, destinationTreeUri: Uri) {
+        try {
+            // Get persistent permission for the selected directory
+            contentResolver.takePersistableUriPermission(
+                destinationTreeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+
+            // Use DocumentFile for better file handling across profiles
+            val destinationDir = DocumentFile.fromTreeUri(this, destinationTreeUri)
+
+            if (destinationDir == null || !destinationDir.isDirectory) {
+                Toast.makeText(this, "Invalid destination directory", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            // Get source file information
+            val sourceFileName = getFileName(sourceUri)
+            val sourceMimeType = contentResolver.getType(sourceUri) ?: "*/*"
+
+            // Create new file in destination directory
+            val newFile = destinationDir.createFile(sourceMimeType, sourceFileName)
+
+            if (newFile != null) {
+                // Copy file contents
+                contentResolver.openInputStream(sourceUri)?.use { input ->
+                    contentResolver.openOutputStream(newFile.uri)?.use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Toast.makeText(
+                    this,
+                    "File copied successfully to work profile!",
+                    Toast.LENGTH_SHORT
+                ).show()
+                Log.d("ProfileManager", "File copied to: ${newFile.uri}")
+            } else {
+                Toast.makeText(this, "Failed to create file in destination", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: SecurityException) {
+            Toast.makeText(
+                this,
+                "Permission denied. Please grant access to the work profile directory.",
+                Toast.LENGTH_LONG
+            ).show()
+            Log.e("ProfileManager", "Security exception copying file", e)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error copying file: ${e.message}", Toast.LENGTH_LONG).show()
+            Log.e("ProfileManager", "Error copying file", e)
+        }
+    }
+
+    private fun getFileName(uri: Uri): String {
+        var fileName = "file"
+        if (uri.scheme == "content") {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1) {
+                        fileName = cursor.getString(nameIndex)
+                    }
+                }
+            }
+        }
+        if (fileName == "file") {
+            uri.path?.let { path ->
+                val cut = path.lastIndexOf('/')
+                if (cut != -1) {
+                    fileName = path.substring(cut + 1)
+                }
+            }
+        }
+        return fileName
+    }
+
+    private fun pickFileToShare() {
+        sourceFilePickerLauncher.launch("*/*")
+    }
+
     private fun startWorkProfilePolling() {
         if (!isRunningInWorkProfile && !hasWorkProfile) {
             isPolling = true
@@ -388,7 +598,8 @@ fun MainScreen(
     onProvisionClick: () -> Unit,
     onActivateAdminClick: () -> Unit,
     onDeleteProfileClick: () -> Unit,
-    onEnableAppsClick: () -> Unit
+    onEnableAppsClick: () -> Unit,
+    onShareFileClick: () -> Unit
 ) {
     val gradientBrush = Brush.linearGradient(
         colors = listOf(Pink40, Purple40),
@@ -483,6 +694,17 @@ fun MainScreen(
                         modifier = Modifier.padding(top = 16.dp)
                     ) {
                         Text(text = "Enable Apps")
+                    }
+
+                    // Copy File button in work profile
+                    Button(
+                        onClick = onShareFileClick,
+                        modifier = Modifier.padding(top = 16.dp),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFF9800)
+                        )
+                    ) {
+                        Text(text = "Copy File from Main Profile")
                     }
 
                     Button(
