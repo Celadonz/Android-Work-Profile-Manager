@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
     private var showBottomSheet by mutableStateOf(false)
     private var showSecureFolderDialog by mutableStateOf(false)
     private var isSecureFolderConfigured by mutableStateOf(false)
+    private var showEnableAppsSheet by mutableStateOf(false)
 
     companion object {
         internal const val PREFS_NAME = "ProfileManagerPrefs"
@@ -167,7 +168,8 @@ class MainActivity : ComponentActivity() {
                                 isSamsungDevice = isSamsungDevice(),
                                 onProvisionClick = { provisionManagedProfile() },
                                 onActivateAdminClick = { activateDeviceAdmin() },
-                                onDeleteProfileClick = { deleteWorkProfile() }
+                                onDeleteProfileClick = { deleteWorkProfile() },
+                                onEnableAppsClick = { showEnableAppsSheet = true }
                             )
                         }
 
@@ -175,6 +177,14 @@ class MainActivity : ComponentActivity() {
                             SettingsBottomSheet(
                                 sharedPreferences = sharedPreferences,
                                 onDismiss = { showBottomSheet = false }
+                            )
+                        }
+
+                        if (showEnableAppsSheet) {
+                            EnableAppsBottomSheet(
+                                devicePolicyManager = devicePolicyManager,
+                                adminComponentName = adminComponentName,
+                                onDismiss = { showEnableAppsSheet = false }
                             )
                         }
                     }
@@ -370,7 +380,8 @@ fun MainScreen(
     isSamsungDevice: Boolean,
     onProvisionClick: () -> Unit,
     onActivateAdminClick: () -> Unit,
-    onDeleteProfileClick: () -> Unit
+    onDeleteProfileClick: () -> Unit,
+    onEnableAppsClick: () -> Unit
 ) {
     val gradientBrush = Brush.linearGradient(
         colors = listOf(Pink40, Purple40),
@@ -461,8 +472,15 @@ fun MainScreen(
             } else {
                 if (isProfileOwner) {
                     Button(
+                        onClick = onEnableAppsClick,
+                        modifier = Modifier.padding(top = 16.dp)
+                    ) {
+                        Text(text = "Enable Apps")
+                    }
+
+                    Button(
                         onClick = onDeleteProfileClick,
-                        modifier = Modifier.padding(top = 32.dp),
+                        modifier = Modifier.padding(top = 16.dp),
                         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                             containerColor = Color.Red
                         )
@@ -658,3 +676,203 @@ fun SettingsBottomSheet(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EnableAppsBottomSheet(
+    devicePolicyManager: DevicePolicyManager,
+    adminComponentName: ComponentName,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // List of apps to show - for now just Samsung Gallery
+    data class AppToEnable(
+        val displayName: String,
+        val packageName: String,
+        var isEnabled: Boolean = false
+    )
+
+    var apps by remember {
+        mutableStateOf(listOf(
+            AppToEnable("Samsung Gallery", "com.sec.android.gallery3d", false)
+        ))
+    }
+
+    // Check current enabled state of apps
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        apps = apps.map { app ->
+            val isHidden = try {
+                devicePolicyManager.isApplicationHidden(adminComponentName, app.packageName)
+            } catch (e: Exception) {
+                false
+            }
+            app.copy(isEnabled = !isHidden)
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(
+                text = "Enable Apps",
+                style = androidx.compose.material3.MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(bottom = 24.dp)
+            )
+
+            // App list
+            apps.forEach { app ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = app.displayName,
+                            style = androidx.compose.material3.MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            text = app.packageName,
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
+                    Switch(
+                        checked = app.isEnabled,
+                        onCheckedChange = { newValue ->
+                            try {
+                                if (newValue) {
+                                    // Enable the app with full UI access
+
+                                    // Step 1: Enable the system app
+                                    try {
+                                        devicePolicyManager.enableSystemApp(adminComponentName, app.packageName)
+                                        android.util.Log.d("EnableApps", "System app enabled: ${app.packageName}")
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("EnableApps", "Could not enable system app (might already be enabled): ${e.message}")
+                                    }
+
+                                    // Step 2: Unhide the application
+                                    val unhideResult = devicePolicyManager.setApplicationHidden(
+                                        adminComponentName,
+                                        app.packageName,
+                                        false
+                                    )
+                                    android.util.Log.d("EnableApps", "Unhide result: $unhideResult")
+
+                                    // Step 3: Clear any application restrictions
+                                    try {
+                                        devicePolicyManager.setApplicationRestrictions(
+                                            adminComponentName,
+                                            app.packageName,
+                                            android.os.Bundle()
+                                        )
+                                        android.util.Log.d("EnableApps", "Application restrictions cleared")
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("EnableApps", "Could not clear restrictions: ${e.message}")
+                                    }
+
+                                    // Step 4: Try to grant necessary permissions for Gallery
+                                    if (app.packageName == "com.sec.android.gallery3d") {
+                                        val permissions = mutableListOf(
+                                            android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                                            android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                                        )
+
+                                        // Add READ_MEDIA permissions for API 33+
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                            permissions.add(android.Manifest.permission.READ_MEDIA_IMAGES)
+                                            permissions.add(android.Manifest.permission.READ_MEDIA_VIDEO)
+                                        }
+
+                                        permissions.forEach { permission ->
+                                            try {
+                                                devicePolicyManager.setPermissionGrantState(
+                                                    adminComponentName,
+                                                    app.packageName,
+                                                    permission,
+                                                    DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED
+                                                )
+                                                android.util.Log.d("EnableApps", "Granted permission: $permission")
+                                            } catch (e: Exception) {
+                                                android.util.Log.w("EnableApps", "Could not grant permission $permission: ${e.message}")
+                                            }
+                                        }
+                                    }
+
+                                    // Update the state
+                                    apps = apps.map {
+                                        if (it.packageName == app.packageName) {
+                                            it.copy(isEnabled = true)
+                                        } else {
+                                            it
+                                        }
+                                    }
+
+                                    Toast.makeText(
+                                        context,
+                                        "${app.displayName} enabled with UI access",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+
+                                } else {
+                                    // Disable the app (hide it)
+                                    val hideResult = devicePolicyManager.setApplicationHidden(
+                                        adminComponentName,
+                                        app.packageName,
+                                        true
+                                    )
+
+                                    if (hideResult) {
+                                        apps = apps.map {
+                                            if (it.packageName == app.packageName) {
+                                                it.copy(isEnabled = false)
+                                            } else {
+                                                it
+                                            }
+                                        }
+
+                                        Toast.makeText(
+                                            context,
+                                            "${app.displayName} disabled",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            "Failed to disable ${app.displayName}",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    context,
+                                    "Error: ${e.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                android.util.Log.e("EnableApps", "Error toggling app", e)
+                            }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
