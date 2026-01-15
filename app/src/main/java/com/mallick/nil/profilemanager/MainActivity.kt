@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.UserManager
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -103,6 +104,7 @@ class MainActivity : ComponentActivity() {
                 // Work profile not detected yet - continue polling by rescheduling this runnable
                 // Creates a continuous loop that checks every 2 seconds until work profile appears
                 pollingHandler.postDelayed(this, 2000)
+                Log.i("ProfileManager", "Polling restarted")
             }
         }
     }
@@ -703,12 +705,30 @@ fun EnableAppsBottomSheet(
     // Check current enabled state of apps
     androidx.compose.runtime.LaunchedEffect(Unit) {
         apps = apps.map { app ->
-            val isHidden = try {
-                devicePolicyManager.isApplicationHidden(adminComponentName, app.packageName)
+            val isFullyEnabled = try {
+                // Check if app is hidden
+                val isHidden = devicePolicyManager.isApplicationHidden(adminComponentName, app.packageName)
+
+                if (isHidden) {
+                    // If hidden, definitely not enabled
+                    false
+                } else {
+                    // If not hidden, check if it's truly enabled by checking if it's launchable
+                    // An app in headless mode won't have a launch intent
+                    val pm = context.packageManager
+                    val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
+                    val hasLaunchIntent = launchIntent != null
+
+                    android.util.Log.d("EnableApps", "App ${app.packageName}: hidden=$isHidden, hasLaunchIntent=$hasLaunchIntent")
+
+                    // App is fully enabled only if not hidden AND has a launch intent
+                    hasLaunchIntent
+                }
             } catch (e: Exception) {
+                android.util.Log.e("EnableApps", "Error checking app state: ${e.message}")
                 false
             }
-            app.copy(isEnabled = !isHidden)
+            app.copy(isEnabled = isFullyEnabled)
         }
     }
 
@@ -756,22 +776,35 @@ fun EnableAppsBottomSheet(
                             try {
                                 if (newValue) {
                                     // Enable the app with full UI access
+                                    android.util.Log.d("EnableApps", "Starting to enable ${app.packageName} with UI access")
 
-                                    // Step 1: Enable the system app
-                                    try {
-                                        devicePolicyManager.enableSystemApp(adminComponentName, app.packageName)
-                                        android.util.Log.d("EnableApps", "System app enabled: ${app.packageName}")
-                                    } catch (e: Exception) {
-                                        android.util.Log.w("EnableApps", "Could not enable system app (might already be enabled): ${e.message}")
-                                    }
-
-                                    // Step 2: Unhide the application
+                                    // Step 1: First unhide the application (must be done before enabling)
                                     val unhideResult = devicePolicyManager.setApplicationHidden(
                                         adminComponentName,
                                         app.packageName,
                                         false
                                     )
                                     android.util.Log.d("EnableApps", "Unhide result: $unhideResult")
+
+                                    // Step 2: Enable the system app with UI components
+                                    // Use the Intent-based enableSystemApp which enables the app with its launcher
+                                    try {
+                                        val launchIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+                                        launchIntent.addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+                                        launchIntent.setPackage(app.packageName)
+
+                                        // This enables the app with its launcher activity
+                                        devicePolicyManager.enableSystemApp(adminComponentName, launchIntent)
+                                        android.util.Log.d("EnableApps", "System app enabled with launcher intent")
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("EnableApps", "Could not enable with intent, trying package name: ${e.message}")
+                                        try {
+                                            devicePolicyManager.enableSystemApp(adminComponentName, app.packageName)
+                                            android.util.Log.d("EnableApps", "System app enabled with package name")
+                                        } catch (e2: Exception) {
+                                            android.util.Log.w("EnableApps", "Could not enable system app: ${e2.message}")
+                                        }
+                                    }
 
                                     // Step 3: Clear any application restrictions
                                     try {
@@ -813,20 +846,35 @@ fun EnableAppsBottomSheet(
                                         }
                                     }
 
+                                    // Step 5: Verify the app is now launchable
+                                    val pm = context.packageManager
+                                    val launchIntent = pm.getLaunchIntentForPackage(app.packageName)
+                                    val hasLaunchIntent = launchIntent != null
+
+                                    android.util.Log.d("EnableApps", "After enabling: hasLaunchIntent=$hasLaunchIntent")
+
                                     // Update the state
                                     apps = apps.map {
                                         if (it.packageName == app.packageName) {
-                                            it.copy(isEnabled = true)
+                                            it.copy(isEnabled = hasLaunchIntent)
                                         } else {
                                             it
                                         }
                                     }
 
-                                    Toast.makeText(
-                                        context,
-                                        "${app.displayName} enabled with UI access",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                    if (hasLaunchIntent) {
+                                        Toast.makeText(
+                                            context,
+                                            "${app.displayName} enabled with UI access",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            "${app.displayName} enabled but UI may not be available. Check logs.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
 
                                 } else {
                                     // Disable the app (hide it)
