@@ -137,8 +137,10 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
-        // Start polling for work profile creation
-        startWorkProfilePolling()
+        // Start polling for work profile creation only if Secure Folder is already configured
+        if (isSecureFolderConfigured) {
+            startWorkProfilePolling()
+        }
 
         setContent {
             ProfileManagerTheme {
@@ -222,6 +224,9 @@ class MainActivity : ComponentActivity() {
 
                                 // Update profile status with the new threshold setting
                                 updateProfileStatus()
+
+                                // Start polling now that configuration is saved
+                                startWorkProfilePolling()
                             },
                             onDismiss = {
                                 // Don't allow dismissing without making a choice at startup
